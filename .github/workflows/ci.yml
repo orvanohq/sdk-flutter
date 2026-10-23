@@ -118,8 +118,16 @@ jobs:
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
         run: dart run tool/regenerate.dart
+      # Only what the generator owns, and the pin: pubspec.lock moves with the Flutter release CI installs, because
+      # Flutter pins exact versions of its own test packages.
       - name: Generated code matches the pin
-        run: git diff --exit-code
+        run: >-
+          git diff --exit-code --
+          orvano-contract.json
+          packages/orvano/lib/src/generated
+          packages/orvano/lib/src/core
+          packages/orvano/test/conformance/dispatch.g.dart
+          packages/orvano/test/conformance/scenarios.g.json
 
   # Spec 0014 CNF-5, CNF-6, spec 0004 DQA-3: every client scenario for orvano on the Dart VM, against Orvano and the
   # stub from api/conformance/compose.yaml at the pinned commit. The server image is built from that commit here,
