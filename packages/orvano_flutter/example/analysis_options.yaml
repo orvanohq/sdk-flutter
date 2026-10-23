@@ -1,0 +1,7 @@
+# Spec 0004 DRT-4: copy to example/analysis_options.yaml and tool/analysis_options.yaml.
+include: ../../../analysis_options.yaml
+
+linter:
+  rules:
+    avoid_print: false
+    public_member_api_docs: false

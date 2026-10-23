@@ -17,20 +17,168 @@ concurrency:
 
 jobs:
   hygiene:
-    uses: orvanohq/orvano/.github/workflows/repo-hygiene.yml@a91f23fe6a3452c66d4d3516abbefae168136de7 # main as of 2026-10-18
+    uses: orvanohq/orvano/.github/workflows/repo-hygiene.yml@facb90bce597039dd15de0531b24216e3b0dea4b # main as of 2026-10-23
     permissions:
       contents: read
       pull-requests: read # the dco job reads the PR's commits (spec 0010 DCO-1)
 
-  sdk:
-    uses: orvanohq/orvano/.github/workflows/sdk-dart.yml@a91f23fe6a3452c66d4d3516abbefae168136de7 # main as of 2026-10-18
+  # The shared Dart checks, once per package (format, analyze, publish dry run, tests on the newest and the lowest
+  # versions). They run tool/check_*.dart only from the package folder, so the checks job runs them for the repo.
+  sdk-orvano:
+    uses: orvanohq/orvano/.github/workflows/sdk-dart.yml@facb90bce597039dd15de0531b24216e3b0dea4b # main as of 2026-10-23
     permissions:
       contents: read
+    with:
+      working-directory: packages/orvano
+      flutter: true
+
+  sdk-orvano-flutter:
+    uses: orvanohq/orvano/.github/workflows/sdk-dart.yml@facb90bce597039dd15de0531b24216e3b0dea4b # main as of 2026-10-23
+    permissions:
+      contents: read
+    with:
+      working-directory: packages/orvano_flutter
+      flutter: true
+
+  # Spec 0004 Enforcement: tool/check_imports.dart, check_deps.dart (with every package's license, spec 0009 DEP-1),
+  # and check_version.dart, on the newest and the lowest versions (DRT-3).
+  checks:
+    name: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The workspace holds a Flutter package, so it resolves only with the Flutter tool (spec 0004 DRT-1). The same
+      # install as orvano's sdk-dart.yml: the archive is checked against the sha256 in Flutter's release manifest.
+      - name: Install the latest stable Flutter
+        working-directory: ${{ runner.temp }}
+        run: |
+          manifest="$(curl -fsSL --retry 3 https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json)"
+          base_url="$(jq -er '.base_url' <<< "$manifest")"
+          release="$(jq -ec '.current_release.stable as $hash | .releases[] | select(.hash == $hash and .channel == "stable")' <<< "$manifest")"
+          archive="$(jq -er '.archive' <<< "$release")"
+          echo "Flutter $(jq -er '.version' <<< "$release") (Dart $(jq -er '.dart_sdk_version' <<< "$release"))"
+          curl -fsSL --retry 3 -o flutter.tar.xz "$base_url/$archive"
+          echo "$(jq -er '.sha256' <<< "$release")  flutter.tar.xz" | sha256sum --check --strict
+          tar -xJf flutter.tar.xz
+          rm flutter.tar.xz
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --disable-analytics
+      - run: flutter pub get
+      - name: Repo checks (newest versions)
+        run: for script in tool/check_*.dart; do dart run "$script"; done
+      - run: flutter pub downgrade
+      - name: Repo checks (lowest versions)
+        run: for script in tool/check_*.dart; do dart run "$script"; done
+
+  # Spec 0014 RGN-3: regenerate from the pinned orvano commit and fail on any difference. The generator is Node, so
+  # this job needs Node 24 and pnpm (RGN-2).
+  drift:
+    name: drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The workspace holds a Flutter package, so it resolves only with the Flutter tool (spec 0004 DRT-1). The same
+      # install as orvano's sdk-dart.yml: the archive is checked against the sha256 in Flutter's release manifest.
+      - name: Install the latest stable Flutter
+        working-directory: ${{ runner.temp }}
+        run: |
+          manifest="$(curl -fsSL --retry 3 https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json)"
+          base_url="$(jq -er '.base_url' <<< "$manifest")"
+          release="$(jq -ec '.current_release.stable as $hash | .releases[] | select(.hash == $hash and .channel == "stable")' <<< "$manifest")"
+          archive="$(jq -er '.archive' <<< "$release")"
+          echo "Flutter $(jq -er '.version' <<< "$release") (Dart $(jq -er '.dart_sdk_version' <<< "$release"))"
+          curl -fsSL --retry 3 -o flutter.tar.xz "$base_url/$archive"
+          echo "$(jq -er '.sha256' <<< "$release")  flutter.tar.xz" | sha256sum --check --strict
+          tar -xJf flutter.tar.xz
+          rm flutter.tar.xz
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --disable-analytics
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.0
+      - name: Enable pnpm through corepack (the orvano checkout pins its version)
+        run: corepack enable
+      - name: Cache the orvano checkout (RGN-2)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .orvano
+          key: orvano-${{ hashFiles('orvano-contract.json') }}
+      - run: flutter pub get
+      - name: Regenerate from the pin (checks the contract hash too)
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: dart run tool/regenerate.dart
+      - name: Generated code matches the pin
+        run: git diff --exit-code
+
+  # Spec 0014 CNF-5, CNF-6, spec 0004 DQA-3: every client scenario for orvano on the Dart VM, against Orvano and the
+  # stub from api/conformance/compose.yaml at the pinned commit. The server image is built from that commit here,
+  # because nothing publishes ghcr.io/orvanohq/orvano:sha-<commit> yet; switch to pulling it then.
+  conformance:
+    name: conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The workspace holds a Flutter package, so it resolves only with the Flutter tool (spec 0004 DRT-1). The same
+      # install as orvano's sdk-dart.yml: the archive is checked against the sha256 in Flutter's release manifest.
+      - name: Install the latest stable Flutter
+        working-directory: ${{ runner.temp }}
+        run: |
+          manifest="$(curl -fsSL --retry 3 https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json)"
+          base_url="$(jq -er '.base_url' <<< "$manifest")"
+          release="$(jq -ec '.current_release.stable as $hash | .releases[] | select(.hash == $hash and .channel == "stable")' <<< "$manifest")"
+          archive="$(jq -er '.archive' <<< "$release")"
+          echo "Flutter $(jq -er '.version' <<< "$release") (Dart $(jq -er '.dart_sdk_version' <<< "$release"))"
+          curl -fsSL --retry 3 -o flutter.tar.xz "$base_url/$archive"
+          echo "$(jq -er '.sha256' <<< "$release")  flutter.tar.xz" | sha256sum --check --strict
+          tar -xJf flutter.tar.xz
+          rm flutter.tar.xz
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --disable-analytics
+      - name: Cache the orvano checkout (RGN-2)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .orvano
+          key: orvano-${{ hashFiles('orvano-contract.json') }}
+      - run: flutter pub get
+      - name: Fetch the pinned orvano commit
+        run: dart run tool/regenerate.dart --fetch-only
+      - name: Build the Orvano image at the pinned commit
+        run: docker build --file .orvano/deploy/Dockerfile --tag orvano:pinned .orvano
+      - name: Start Orvano, PostgreSQL, and the stub
+        env:
+          ORVANO_IMAGE: orvano
+          ORVANO_IMAGE_TAG: pinned
+        run: docker compose --file .orvano/api/conformance/compose.yaml up --detach --wait
+      - name: Conformance (orvano on the Dart VM)
+        working-directory: packages/orvano
+        run: dart test --tags conformance
+      - name: Server logs
+        if: failure()
+        env:
+          ORVANO_IMAGE: orvano
+          ORVANO_IMAGE_TAG: pinned
+        run: docker compose --file .orvano/api/conformance/compose.yaml logs --no-color
 
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [hygiene, sdk]
+    needs: [hygiene, sdk-orvano, sdk-orvano-flutter, checks, drift, conformance]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions: {}

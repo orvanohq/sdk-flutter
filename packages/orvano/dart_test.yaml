@@ -1,0 +1,6 @@
+# Spec 0004 DQA-3: the conformance suite needs Orvano and the stub running
+# (api/conformance/compose.yaml). Run it with `dart test --tags conformance`,
+# and the unit tests alone with `dart test --exclude-tags conformance`.
+tags:
+  conformance:
+    timeout: 2x

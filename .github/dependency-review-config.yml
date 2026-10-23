@@ -2,6 +2,10 @@
 # allow-dependencies-licenses holds this SDK's dev exceptions from spec 0009 DEP-5's table, by package URL without a
 # version. Keep the entries your repo needs and delete the rest; add one only with that table, in the same PR.
 fail-on-severity: moderate
+# GitHub's dependency graph has no usable license data for pub packages (lowercase or missing SPDX IDs), so the
+# license gate is off here and tool/check_deps.dart checks every resolved package's LICENSE file instead (spec 0009
+# DEP-1, DEP-8). The vulnerability check above stays on.
+license-check: false
 # The action checks only runtime dependencies by default, so a dev dependency (DEP-5) would skip the license gate.
 fail-on-scopes:
   - runtime
@@ -20,17 +24,4 @@ allow-licenses:
   - BlueOak-1.0.0
   - Unlicense
   - CC0-1.0
-allow-dependencies-licenses:
-  # TypeScript SDKs (the Vite+ toolchain pulls these in at build time)
-  - pkg:npm/caniuse-lite
-  - pkg:npm/lightningcss
-  - pkg:npm/lightningcss-darwin-arm64
-  - pkg:npm/lightningcss-darwin-x64
-  - pkg:npm/lightningcss-linux-arm64-gnu
-  - pkg:npm/lightningcss-linux-arm64-musl
-  - pkg:npm/lightningcss-linux-x64-gnu
-  - pkg:npm/lightningcss-linux-x64-musl
-  - pkg:npm/lightningcss-win32-arm64-msvc
-  - pkg:npm/lightningcss-win32-x64-msvc
-  # .NET SDK
-  - pkg:nuget/Microsoft.Testing.Extensions.CodeCoverage
+# No dev exceptions from spec 0009 DEP-5 apply to this repo yet.
