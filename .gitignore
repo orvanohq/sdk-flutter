@@ -1,0 +1,4 @@
+# The orvano checkout tool/regenerate.dart fetches (spec 0014 RGN-2).
+.orvano/
+.dart_tool/
+build/

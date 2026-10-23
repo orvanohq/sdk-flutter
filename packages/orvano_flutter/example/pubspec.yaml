@@ -1,0 +1,13 @@
+name: orvano_flutter_example
+description: A small Flutter app that opens an Orvano client and checks the server.
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.10.0
+  flutter: ">=3.38.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  orvano_flutter: ">=0.1.0 <0.2.0"

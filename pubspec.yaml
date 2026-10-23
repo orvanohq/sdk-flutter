@@ -1,0 +1,15 @@
+# Spec 0004 PKG-1, PKG-6: the Flutter SDK repo's pub workspace. It contains a
+# Flutter package, so it resolves only with the Flutter tool (DRT-1).
+name: orvano_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+workspace:
+  - packages/orvano
+  - packages/orvano_flutter
+  - packages/orvano_flutter/example
+
+dev_dependencies:
+  crypto: ^3.0.0
