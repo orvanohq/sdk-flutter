@@ -12,7 +12,7 @@ environment:
   sdk: ^3.10.0
 
 dependencies:
-  clock: ^1.1.0
+  clock: ^1.1.3
   collection: ^1.18.0
   http: ^1.5.0
   logging: ^1.2.0
@@ -22,6 +22,6 @@ dev_dependencies:
   fake_async: ^1.3.0
   # Not used directly: it sets the floor `pub downgrade` resolves for test,
   # since 3.x looks for a frontend server snapshot newer SDKs no longer ship.
-  frontend_server_client: ^4.0.0
+  frontend_server_client: ^4.2.0
   lints: ^6.0.0
   test: ^1.27.0
