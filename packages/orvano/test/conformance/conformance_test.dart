@@ -36,14 +36,19 @@ void main() {
       skip! as Map<String, Object?>, // Not null: a skip object.
   ];
   final ran = <String>{};
+  BootstrappedProject? project;
 
   group('0014 AC-17, AC-18: orvano conformance on the Dart VM', () {
+    setUpAll(() async {
+      if (scenarios.any(requiresProject)) project = await bootstrapProject();
+    });
+
     for (final scenario in scenarios) {
       final id = scenario['id']! as String; // Not null: required.
       final skipped = skips.any((skip) => skip['id'] == id);
       test('$id: ${scenario['title']}', skip: skipped, () async {
         ran.add(id);
-        expect(await runScenario(scenario, servers), isEmpty);
+        expect(await runScenario(scenario, servers, project: project), isEmpty);
       });
     }
 

@@ -2,6 +2,7 @@
 // dispatcher. It opens the client, loads a stub scenario's script, runs each
 // step, and matches results, errors, the last response, and what the SDK sent.
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
@@ -25,30 +26,92 @@ const String _projectId = '0192f0c1-0000-7000-8000-000000000001';
 const String _defaultKey = 'conformance-key';
 final Random _random = Random.secure();
 
+/// The project and keys `orvano admin bootstrap-project` printed (spec 0017
+/// SDK-4).
+final class BootstrappedProject {
+  /// Creates the project from the command's JSON.
+  BootstrappedProject.fromJson(Map<String, Object?> json)
+    : projectId = json['projectId']! as String, // Not null: BST-4 prints it.
+      publishableKey = json['publishableKey']! as String, // Not null: BST-4.
+      secretKey = json['secretKey']! as String; // Not null: BST-4.
+
+  /// The project's ID.
+  final String projectId;
+
+  /// The publishable key, for a client SDK.
+  final String publishableKey;
+
+  /// The secret key, for a server SDK.
+  final String secretKey;
+}
+
+/// CNF-7: makes a project on the running server, once per run, when the run
+/// list holds a scenario that requires one. Its JSON is the only copy of the
+/// keys.
+Future<BootstrappedProject> bootstrapProject() async {
+  final result = await Process.run(
+    'docker',
+    [
+      'compose',
+      '--file',
+      '../../.orvano/api/conformance/compose.yaml',
+      'exec',
+      '-T',
+      'orvano',
+      '/app/orvano',
+      'admin',
+      'bootstrap-project',
+      '--owner-email',
+      'conformance@orvano.test',
+      '--organization',
+      'Conformance',
+      '--project',
+      'conformance-dart',
+    ],
+    // `exec` only finds the running container, but Compose reads the whole
+    // file first, and the file needs a tag.
+    environment: {
+      'ORVANO_IMAGE_TAG': Platform.environment['ORVANO_IMAGE_TAG'] ?? 'unused',
+    },
+  );
+  if (result.exitCode != 0) {
+    throw StateError('orvano admin bootstrap-project: ${result.stderr}');
+  }
+  return BootstrappedProject.fromJson(
+    jsonDecode(result.stdout as String)! as Map<String, Object?>,
+  );
+}
+
 /// Runs one scenario and returns every mismatch; an empty list is a pass.
 Future<List<String>> runScenario(
   Map<String, Object?> scenario,
-  Servers servers,
-) async {
+  Servers servers, {
+  BootstrappedProject? project,
+}) async {
   final id = scenario['id']! as String; // Not null: the generator writes it.
   final stub = scenario['mode'] == 'stub';
   final token = 'run-${_randomToken()}';
+  final real = requiresProject(scenario) ? project : null;
+  if (requiresProject(scenario) && real == null) {
+    return ['the scenario requires a project, and the run has none'];
+  }
   final key = switch (scenario['client']) {
     {'key': final String key} => key,
-    _ => _defaultKey,
+    _ => real?.publishableKey ?? _defaultKey,
   };
+  final projectId = real?.projectId ?? _projectId;
   final variables = {
     'apiVersion': apiVersion,
     'clientName': 'orvano/$packageVersion',
     'key': key,
-    'projectId': _projectId,
+    'projectId': projectId,
   };
 
   final plain = http.Client();
   final recording = RecordingClient(plain);
   final client = await Orvano.open(
     endpoint: stub ? servers.stubUrl : servers.liveUrl,
-    projectId: _projectId,
+    projectId: projectId,
     publishableKey: key,
     httpClient: recording,
   );
@@ -128,6 +191,10 @@ Future<List<String>> runScenario(
     plain.close();
   }
 }
+
+/// Whether a scenario needs a real project (spec 0014 CNF-7).
+bool requiresProject(Map<String, Object?> scenario) =>
+    (scenario['requires'] as List<Object?>?)?.contains('project') ?? false;
 
 /// CNF-8: every scenario either ran or is in skip.json with a reason and an
 /// issue.
